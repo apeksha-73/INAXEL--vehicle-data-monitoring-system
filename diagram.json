@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "author": "Apeksha",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-pi-pico-w", "id": "pico", "top": 0, "left": 0 },
+    { "type": "wokwi-mpu6050", "id": "imu", "top": -150, "left": 120 },
+    { "type": "wokwi-dht22", "id": "dht", "top": -150, "left": -120 },
+    { "type": "wokwi-potentiometer", "id": "gas", "top": 150, "left": 0, "attrs": { "label": "Gas/Smoke" } }
+  ],
+  "connections": [
+    [ "pico:GP0", "imu:SDA", "blue", [ "v0" ] ],
+    [ "pico:GP1", "imu:SCL", "blue", [ "v0" ] ],
+    [ "pico:GP15", "dht:OUT", "green", [ "v0" ] ],
+    [ "pico:GP26", "gas:SIG", "orange", [ "v0" ] ],
+    [ "pico:3V3", "imu:VCC", "red", [ "v0" ] ],
+    [ "pico:GND.1", "imu:GND", "black", [ "v0" ] ],
+    [ "pico:3V3", "dht:VCC", "red", [ "v0" ] ],
+    [ "pico:GND.2", "dht:GND", "black", [ "v0" ] ],
+    [ "pico:3V3", "gas:VCC", "red", [ "v0" ] ],
+    [ "pico:GND.3", "gas:GND", "black", [ "v0" ] ]
+  ]
+}
