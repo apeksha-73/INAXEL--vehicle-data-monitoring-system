@@ -4,90 +4,87 @@ import dht
 import network
 import urequests
 import _thread
-from imu import MPU6050
+
+# --- INTEGRATED DRIVER (Fixes Import Error) ---
+class MPU6050:
+    def __init__(self, i2c, addr=0x68):
+        self.i2c = i2c
+        self.addr = addr
+        self.i2c.writeto_mem(self.addr, 0x6B, b'\x00') 
+
+    def _read_word(self, reg):
+        h = self.i2c.readfrom_mem(self.addr, reg, 1)[0]
+        l = self.i2c.readfrom_mem(self.addr, reg + 1, 1)[0]
+        val = (h << 8) | l
+        return val if val < 32768 else val - 65536
+
+    @property
+    def accel(self):
+        x = self._read_word(0x3B) / 16384.0
+        y = self._read_word(0x3D) / 16384.0
+        z = self._read_word(0x3F) / 16384.0
+        return type('Data', (), {'x':x, 'y':y, 'z':z})
 
 # --- CONFIGURATION ---
-WEB_URL = "https://your-ngrok-url.ngrok-free.app/alert" # UPDATE THIS!
-CRASH_THRESHOLD = 3.5  # G-Force
+WEB_URL = "https://your-ngrok-url.ngrok-free.app/alert" # Update with your Ngrok link
+CRASH_THRESHOLD = 3.5  
 SMOKE_THRESHOLD = 35000 
-SEND_INTERVAL = 5      # Seconds between normal updates
 
-# --- HARDWARE SETUP ---
+# --- HARDWARE ---
 i2c = machine.I2C(0, sda=machine.Pin(0), scl=machine.Pin(1))
 imu = MPU6050(i2c)
 dht_sensor = dht.DHT22(machine.Pin(15))
 gas_sensor = machine.ADC(26)
-wdt = machine.WDT(timeout=8000) # Safety Rebooter
 
-# Global variables for Core-to-Core communication
+# Shared Data
 telemetry = {"speed": 0, "impact": 1.0, "gas": 0, "temp": 0, "hum": 0, "emergency": False}
 new_data_ready = False
 
 def network_thread():
-    """CORE 1: Dedicated to Wi-Fi and Web Requests"""
     global new_data_ready
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     wlan.connect("Wokwi-GUEST", "")
-    
-    while not wlan.isconnected():
-        utime.sleep(1)
-    
-    print("Network Active:", wlan.ifconfig()[0])
+    while not wlan.isconnected(): utime.sleep(1)
     
     while True:
         if new_data_ready:
             try:
-                # Send the global telemetry dictionary as JSON
                 res = urequests.post(WEB_URL, json=telemetry)
                 res.close()
                 new_data_ready = False 
-            except:
-                print("Web Error")
-        utime.sleep(0.1)
+            except: pass
+        utime.sleep(0.2)
 
-# Start Network Thread on Core 1
 _thread.start_new_thread(network_thread, ())
 
-# --- MAIN LOOP (CORE 0) ---
+# --- MONITORING LOOP ---
 velocity = 0.0
 last_t = utime.ticks_ms()
-last_send = 0
 
 while True:
-    wdt.feed()
-    try:
-        # 1. Physics & Timing
-        dt = (utime.ticks_ms() - last_t) / 1000.0
-        last_t = utime.ticks_ms()
-        
-        # 2. Sensor Readings
-        dht_sensor.measure()
-        accel = imu.accel
-        gas_val = gas_sensor.read_u16()
-        
-        # 3. Refined Speed Math (X-axis only)
-        ax = accel.x if abs(accel.x) > 0.05 else 0
-        velocity += (ax * 9.81) * dt
-        velocity = max(0, velocity * 0.98) # Friction/Damping
-        
-        g_force = (accel.x**2 + accel.y**2 + accel.z**2)**0.5
-        is_emergency = g_force > CRASH_THRESHOLD or gas_val > SMOKE_THRESHOLD
+    dt = (utime.ticks_ms() - last_t) / 1000.0
+    last_t = utime.ticks_ms()
+    
+    dht_sensor.measure()
+    accel = imu.accel
+    gas_val = gas_sensor.read_u16()
+    
+    # Speed Calculation
+    ax = accel.x if abs(accel.x) > 0.05 else 0
+    velocity += (ax * 9.81) * dt
+    velocity = max(0, velocity * 0.98) 
+    
+    # Crash Detection (Resultant Vector)
+    g_force = (accel.x**2 + accel.y**2 + accel.z**2)**0.5
+    
+    if g_force > CRASH_THRESHOLD or gas_val > SMOKE_THRESHOLD:
+        telemetry.update({
+            "speed": velocity * 3.6, "impact": g_force, "gas": gas_val,
+            "temp": dht_sensor.temperature(), "hum": dht_sensor.humidity(),
+            "emergency": True
+        })
+        new_data_ready = True
+        print("!!! ALERT SENT !!!")
 
-        # 4. Prepare Data for Core 1
-        if is_emergency or (utime.time() - last_send >= SEND_INTERVAL):
-            telemetry.update({
-                "speed": velocity * 3.6, # km/h
-                "impact": g_force,
-                "gas": gas_val,
-                "temp": dht_sensor.temperature(),
-                "hum": dht_sensor.humidity(),
-                "emergency": is_emergency
-            })
-            new_data_ready = True
-            last_send = utime.time()
-            if is_emergency: print("!!! CRASH ALERT !!!")
-
-        utime.sleep(0.1)
-    except Exception as e:
-        print("Sensor Error:", e)
+    utime.sleep(0.1)
