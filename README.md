@@ -19,3 +19,4 @@ crash detection, and cloud-based alerting.
 2. Run `app.py` in VS Code to start the Flask server.
 3. Use `ngrok http 5000` to create a public tunnel.
 4. Update the `WEB_URL` in `main.py` with your Ngrok link.
+

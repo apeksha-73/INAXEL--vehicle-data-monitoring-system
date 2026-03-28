@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inaxel</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;900&family=Poppins:wght@300;400;600;800&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg: #02071f;
+            --neon: #edd94c;
+            --danger: #ff4757;
+            --safe: #10b981;
+            --accent: #4facfe;
+            --glass: rgba(255, 255, 255, 0.9);
+        }
+
+        body {
+            background: radial-gradient(circle at top right, #ffffff 0%, #e2e8f0 100%);
+            color: var(--bg);
+            
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            min-height: 120vh;
+            overflow-x: hidden;
+            transition: background 0.5s ease;
+        }
+
+        .emergency-active {
+            background: radial-gradient(circle at center, #fff0f0 0%, #ffcfcf 100%) !important;
+            animation: pulseBg 1.5s infinite alternate;
+        }
+        @keyframes pulseBg { from { opacity: 1; } to { opacity: 0.8; } }
+
+        #hero {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            z-index: 100;
+            transition: all 0.8s cubic-bezier(0.19, 1, 0.22, 1);
+        }
+
+        #hero.minimized {
+            top: 20px; left: 20px;
+            transform: translate(0, 0) scale(0.35);
+            align-items: flex-start;
+        }
+
+        .road-container {
+            position: relative;
+            width: 85vw; height: 120px;
+            background: #000;
+            border-bottom: 3px dashed var(--neon);
+            border-radius: 20px;
+            display: flex; justify-content: center; align-items: center;
+            overflow: hidden;
+        }
+
+        #project-title { font-family: 'Orbitron'; font-size: 4rem; color: var(--neon); display: flex; gap: 8px; margin: 0; }
+        .letter { opacity: 0; transform: translateY(20px); transition: 0.3s; }
+        .letter.reveal { opacity: 1; transform: translateY(0); }
+
+        .car {
+            position: absolute; font-size: 50px; bottom: 10px; left: -100px;
+            animation: driveOnce 2.5s forwards;
+        }
+        @keyframes driveOnce { 100% { left: 110%; } }
+
+        .dashboard-container { padding-top: 100vh; max-width: 1200px; margin: 0 auto; padding-bottom: 50px; }
+        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; padding: 20px; }
+        
+        .card { 
+            background: var(--glass); 
+            backdrop-filter: blur(15px); 
+            padding: 25px; border-radius: 24px; 
+            border: 1px solid rgba(255,255,255,0.5);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.04);
+        }
+
+        .value-display { font-family: 'Orbitron'; font-size: 4rem; font-weight: 900; text-align: center; }
+        .alert-text { color: var(--danger) !important; text-shadow: 0 0 10px rgba(255, 71, 87, 0.3); }
+
+        .audit-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 20px; }
+        .audit-box { background: #fff; padding: 10px; border-radius: 12px; text-align: center; border: 1px solid #eee; }
+        .audit-label { font-size: 0.6rem; font-weight: 800; color: #666; display: block; }
+        .audit-count { font-family: 'Orbitron'; font-size: 1.1rem; color: var(--accent); }
+
+        .status-pill { padding: 10px 20px; font-family: 'Orbitron'; font-size: 0.7rem; background: #fff; border-radius: 10px; border-left: 4px solid var(--neon); }
+
+        button {
+            background: var(--bg); color: var(--neon); border: none; padding: 15px 40px; 
+            font-family: 'Orbitron'; border-radius: 50px; cursor: pointer; font-weight: 900;
+            transition: 0.3s;
+        }
+        button:hover { transform: scale(1.05); background: #000; }
+    </style>
+</head>
+<body>
+
+    <section id="hero">
+        <div class="road-container">
+            <div class="car" id="moving-car">🚕💨</div>
+            <h1 id="project-title"></h1>
+        </div>
+        <div style="display:flex; gap:15px; margin-top:15px;">
+            <div class="status-pill" id="mqtt-status">INITIALIZING...</div>
+            <div class="status-pill" id="ist-clock">IST: --:--:--</div>
+        </div>
+    </section>
+
+    <div class="dashboard-container">
+        <div class="dashboard-grid">
+            <div class="card">
+                <div style="display:flex; justify-content: space-between; font-size:0.7rem; font-weight:800;">
+                    <span>LIVE_VELOCITY (KM/H)</span>
+                    <span id="speed-limit">LIMIT: 60</span>
+                </div>
+                <div id="speed-val" class="value-display">0</div>
+                <div style="height:150px;"><canvas id="speedChart"></canvas></div>
+            </div>
+
+            <div class="card">
+                <div style="display:flex; justify-content: space-between; font-size:0.7rem; font-weight:800;">
+                    <span>TEMPORAL_AUDIT_ARCHIVE</span>
+                    <span style="color:var(--safe)">REST_API: ACTIVE</span>
+                </div>
+                <div class="audit-grid" id="audit-container"></div>
+                <div style="margin-top:20px; padding:15px; background:rgba(0,0,0,0.02); border-radius:12px;">
+                    <div style="display:flex; justify-content: space-between; align-items: center;">
+                        <small style="font-weight:800;">BARO_PRESSURE</small>
+                        <span id="pressure-delta" style="font-size:0.6rem; opacity:0.5;">ΔP: 0.00</span>
+                    </div>
+                    <div id="pressure-val" style="font-size:1.8rem; color:var(--accent);">--</div>
+                    <p id="crash-alert" style="margin:5px 0 0; font-size:0.65rem; color:var(--danger); font-weight:900; visibility:hidden;">⚠️ IMPACT DETECTED</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <div style="font-size:0.7rem; font-weight:800; margin-bottom:15px;">ENVIRONMENTAL_SHIELD</div>
+                <div style="display:flex; justify-content: space-around;">
+                    <div style="text-align:center;"><span id="temp-val" style="font-family:'Orbitron'; font-size:2.2rem;">--</span><br><small>TEMP °C</small></div>
+                    <div style="text-align:center;"><span id="hum-val" style="font-family:'Orbitron'; font-size:2.2rem;">--</span><br><small>HUM %</small></div>
+                </div>
+                <hr style="opacity:0.1; margin:15px 0;">
+                <div style="display:flex; justify-content: space-between; align-items: center;">
+                    <small style="font-weight:800;">SMOKE_DENSITY</small>
+                    <span id="smoke-status" style="font-size:0.6rem; color:var(--safe)">CLEAN</span>
+                </div>
+                <div style="width:100%; background:#eee; height:8px; border-radius:10px; margin-top:8px; overflow:hidden;">
+                    <div id="smoke-bar" style="width:0%; height:100%; background:var(--danger); transition:0.3s;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div style="text-align:center; padding: 40px 0;">
+            <button onclick="generateLegalReport()">GENERATE LEGAL AUDIT Download</button>
+        </div>
+    </div>
+
+<script>
+    const API_KEY = "rc_459a85d5900a5b42e014dea780e651ab9b82b9a6bcffc23d59d6545a54ece617";
+    const TIME_UNITS = ['sec', 'min', 'hour', 'day', 'week', 'month', 'year', 'decade'];
+    let sessionLogs = [];
+    let lastPressure = 0;
+
+    const auditContainer = document.getElementById('audit-container');
+    TIME_UNITS.forEach(unit => {
+        auditContainer.innerHTML += `
+            <div class="audit-box">
+                <span class="audit-label">${unit.toUpperCase()}</span>
+                <span class="audit-count" id="audit-${unit}">0</span>
+            </div>
+        `;
+    });
+
+    function updateAudit(speed) {
+        if (speed <= 0.5) return; 
+        incrementUnit('sec');
+        fetch(`https://api.restcount.com/v1/hit/${API_KEY}/inaxel_movement`, { mode: 'no-cors' });
+    }
+
+    function incrementUnit(unit) {
+        let count = parseInt(localStorage.getItem(`inaxel_${unit}`) || 0) + 1;
+        localStorage.setItem(`inaxel_${unit}`, count);
+        document.getElementById(`audit-${unit}`).innerText = count;
+
+        if (unit === 'sec' && count % 60 === 0) incrementUnit('min');
+        if (unit === 'min' && count % 60 === 0) incrementUnit('hour');
+    }
+
+    function processIncoming(data) {
+        const ist = new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata'});
+        const speed = Math.round(data.speed || 0);
+        const limit = 60;
+
+        const sDisp = document.getElementById('speed-val');
+        sDisp.innerText = speed;
+        speed > limit ? sDisp.classList.add('alert-text') : sDisp.classList.remove('alert-text');
+
+        document.getElementById('temp-val').innerText = data.temp.toFixed(1);
+        document.getElementById('hum-val').innerText = Math.round(data.hum);
+        document.getElementById('smoke-bar').style.width = Math.min((data.smoke/1024)*100, 100) + "%";
+        document.getElementById('smoke-status').innerText = data.smoke > 500 ? "DANGER" : "CLEAN";
+
+        let deltaP = lastPressure === 0 ? 0 : Math.abs(data.pressure - lastPressure);
+        document.getElementById('pressure-val').innerText = data.pressure.toFixed(2);
+        document.getElementById('pressure-delta').innerText = `ΔP: ${deltaP.toFixed(2)}`;
+        document.getElementById('crash-alert').style.visibility = deltaP > 0.5 ? "visible" : "hidden";
+        lastPressure = data.pressure;
+
+        const isEmergency = speed > limit || data.smoke > 500 || deltaP > 0.5;
+        document.body.classList.toggle('emergency-active', isEmergency);
+
+        speedChart.data.labels.push("");
+        speedChart.data.datasets[0].data.push(speed);
+        if(speedChart.data.labels.length > 20) {
+            speedChart.data.labels.shift();
+            speedChart.data.datasets[0].data.shift();
+        }
+        speedChart.update('none');
+
+        sessionLogs.push({ time: ist, speed, temp: data.temp, pressure: data.pressure, status: isEmergency ? "ALERT" : "NORMAL" });
+        updateAudit(speed);
+    }
+
+    const speedCtx = document.getElementById('speedChart').getContext('2d');
+    const speedChart = new Chart(speedCtx, {
+        type: 'line',
+        data: { labels: Array(20).fill(""), datasets: [{ data: Array(20).fill(0), borderColor: '#edd94c', tension: 0.4, fill: true, backgroundColor: 'rgba(237, 217, 76, 0.1)', pointRadius: 0 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { min: 0, max: 100 } } }
+    });
+
+    window.onload = () => {
+        const title = "PROJECT INAXEL";
+        const target = document.getElementById('project-title');
+        title.split('').forEach((c, i) => {
+            const s = document.createElement('span'); s.innerText = c === " " ? "\u00A0" : c;
+            s.className = 'letter'; s.style.transitionDelay = `${i*0.05}s`;
+            target.appendChild(s);
+            setTimeout(() => s.classList.add('reveal'), 100);
+        });
+
+        TIME_UNITS.forEach(u => document.getElementById(`audit-${u}`).innerText = localStorage.getItem(`inaxel_${u}`) || 0);
+        
+        setInterval(() => {
+            document.getElementById('ist-clock').innerText = `IST: ${new Date().toLocaleTimeString('en-IN', {timeZone: 'Asia/Kolkata'})}`;
+        }, 1000);
+
+        const client = new Paho.MQTT.Client("broker.hivemq.com", 8000, "cl_" + Math.random().toString(16).slice(2,10));
+        client.onMessageArrived = (msg) => { try { processIncoming(JSON.parse(msg.payloadString)); } catch(e){} };
+        client.connect({ onSuccess: () => {
+            client.subscribe("hackathon/digital_alibi/data");
+            document.getElementById('mqtt-status').innerText = "LIVE:CONNECTED";
+            document.getElementById('mqtt-status').style.color = "var(--safe)";
+        }, onFailure: () => {
+            document.getElementById('mqtt-status').innerText = "SIMULATION ACTIVE";
+        }});
+
+        setInterval(() => {
+            const simData = {
+                speed: Math.random() > 0.7 ? 40 + Math.random() * 45 : 0,
+                temp: 24 + Math.random() * 2,
+                hum: 60 + Math.random() * 5,
+                smoke: Math.random() * 150,
+                pressure: 1013 + Math.random()
+            };
+            processIncoming(simData);
+        }, 1000);
+    };
+
+    window.addEventListener('scroll', () => {
+        document.getElementById('hero').classList.toggle('minimized', window.scrollY > 50);
+    });
+
+    function generateLegalReport() {
+        if(!sessionLogs.length) return alert("No data captured yet.");
+        let csv = "Time,Speed_KMH,Temp_C,Pressure,Status\n" + sessionLogs.map(l => `${l.time},${l.speed},${l.temp},${l.pressure},${l.status}`).join("\n");
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `Inaxel_Legal_Audit_${new Date().getTime()}.csv`;
+        a.click();
+    }
+</script>
+</body>
+</html>
