@@ -1,4 +1,4 @@
-# 🚗 Vehicle Safety & Black Box System
+# 🚗INAXEL-Vehicle Data monitorning System
 
 A Raspberry Pi Pico W based system for real-time vehicle monitoring, 
 crash detection, and cloud-based alerting.
